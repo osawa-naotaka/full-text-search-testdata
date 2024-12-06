@@ -26,18 +26,6 @@ class KeywordExtractor:
         if lang == "ja":
             self.mecab = MeCab.Tagger("-d /nix/store/m59581a7n90qrf6b81cfww2g485gqa0h-python3.12-unidic-lite-1.0.8/lib/python3.12/site-packages/unidic_lite/dicdir/")
     
-    def clean_text(self, text: str) -> str:
-        """ウィキテキストからプレーンテキストを抽出"""
-        # テンプレート、参照、HTMLタグの除去
-        text = re.sub(r'\{\{[^\}]*\}\}', '', text)
-        text = re.sub(r'<[^>]*>', '', text)
-        text = re.sub(r'\[\[(?:[^|\]]*\|)?([^\]]+)\]\]', r'\1', text)
-        text = re.sub(r'==.*?==', '', text)
-        text = re.sub(r'\'\'\'?.*?\'\'\'?', '', text)
-        # 余分な空白と改行の整理
-        text = re.sub(r'\s+', ' ', text)
-        return text.strip()
-    
     def extract_japanese_keywords(self, text: str, min_freq: int = 2) -> List[str]:
         """日本語テキストからキーワードを抽出"""
         keywords = []
@@ -77,7 +65,6 @@ class KeywordExtractor:
     
     def extract_keywords(self, text: str, min_freq: int = 2) -> List[str]:
         """言語に応じたキーワード抽出"""
-        text = self.clean_text(text)
         if self.lang == "ja":
             return self.extract_japanese_keywords(text, min_freq)
         else:
@@ -87,8 +74,8 @@ def main():
     parser = argparse.ArgumentParser(description='Extract keywords from Wikipedia articles')
     parser.add_argument('input_file', help='Input JSON file path')
     parser.add_argument('--lang', default='ja', help='Language code (default: ja)')
-    parser.add_argument('--keywords-per-article', type=int, default=5, help='Number of keywords to extract per article')
-    parser.add_argument('--min-freq', type=int, default=2, help='Minimum frequency for keywords')
+    parser.add_argument('--keywords-per-article', type=int, default=20, help='Number of keywords to extract per article')
+    parser.add_argument('--min-freq', type=int, default=5, help='Minimum frequency for keywords')
     parser.add_argument('--output', help='Output file path (optional)')
     args = parser.parse_args()
 
@@ -101,17 +88,13 @@ def main():
     
     for article in articles:
         title = article['title']
-        content = article['content']
+        content = article['text']
         
         # キーワード抽出
         all_keywords = extractor.extract_keywords(content, args.min_freq)
         
-        # ランダムに指定数選択
         if all_keywords:
-            selected_keywords = random.sample(
-                all_keywords,
-                min(args.keywords_per_article, len(all_keywords))
-            )
+            selected_keywords = all_keywords[:args.keywords_per_article]
         else:
             selected_keywords = []
         
