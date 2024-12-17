@@ -15,18 +15,14 @@ class KeywordExtractor:
             "ja": {
                 "target_pos": ["名詞"],  # 抽出対象の品詞
                 "exclude_pos": ["非自立", "代名詞", "数"],  # 除外する品詞細分類
-                "min_length": 2,  # 最小文字数
             },
-            "en": {
-                "min_length": 3,  # 英語は3文字以上を対象
-            }
         }
         self.config = self.configs.get(lang, {"min_length": 2})
         
         if lang == "ja":
             self.mecab = MeCab.Tagger("-d /nix/store/m59581a7n90qrf6b81cfww2g485gqa0h-python3.12-unidic-lite-1.0.8/lib/python3.12/site-packages/unidic_lite/dicdir/")
     
-    def extract_japanese_keywords(self, text: str, min_freq: int = 2) -> List[str]:
+    def extract_japanese_keywords(self, text: str, min_freq: int = 2, min_length: int = 3) -> List[str]:
         """日本語テキストからキーワードを抽出"""
         keywords = []
         node = self.mecab.parseToNode(text)
@@ -40,7 +36,7 @@ class KeywordExtractor:
                 if pos in self.config["target_pos"]:
                     word = node.surface
                     # 除外条件のチェック
-                    if (len(word) >= self.config["min_length"] and
+                    if (len(word) >= min_length and
                         not any(ex in features for ex in self.config["exclude_pos"]) and
                         not word.isdigit() and
                         not all(unicodedata.category(c).startswith('P') for c in word)):
@@ -51,7 +47,7 @@ class KeywordExtractor:
         counter = Counter(keywords)
         return [word for word, count in counter.items() if count >= min_freq]
     
-    def extract_english_keywords(self, text: str, min_freq: int = 2) -> List[str]:
+    def extract_english_keywords(self, text: str, min_freq: int = 2, min_length: int = 3) -> List[str]:
         """英語テキストからキーワードを抽出"""
         # 単語の抽出（簡易的な実装）
         words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
@@ -63,12 +59,12 @@ class KeywordExtractor:
         counter = Counter(words)
         return [word for word, count in counter.items() if count >= min_freq]
     
-    def extract_keywords(self, text: str, min_freq: int = 2) -> List[str]:
+    def extract_keywords(self, text: str, min_freq: int = 2, min_length: int = 3) -> List[str]:
         """言語に応じたキーワード抽出"""
         if self.lang == "ja":
-            return self.extract_japanese_keywords(text, min_freq)
+            return self.extract_japanese_keywords(text, min_freq, min_length)
         else:
-            return self.extract_english_keywords(text, min_freq)
+            return self.extract_english_keywords(text, min_freq, min_length)
 
 def main():
     parser = argparse.ArgumentParser(description='Extract keywords from Wikipedia articles')
@@ -76,6 +72,7 @@ def main():
     parser.add_argument('--lang', default='ja', help='Language code (default: ja)')
     parser.add_argument('--keywords-per-article', type=int, default=20, help='Number of keywords to extract per article')
     parser.add_argument('--min-freq', type=int, default=5, help='Minimum frequency for keywords')
+    parser.add_argument('--min-length', type=int, default=3, help='Minimum length for keywords')
     parser.add_argument('--output', help='Output file path (optional)')
     args = parser.parse_args()
 
@@ -91,7 +88,7 @@ def main():
         content = article['text']
         
         # キーワード抽出
-        all_keywords = extractor.extract_keywords(content, args.min_freq)
+        all_keywords = extractor.extract_keywords(content, args.min_freq, args.min_length)
         
         if all_keywords:
             selected_keywords = all_keywords[:args.keywords_per_article]
