@@ -3,6 +3,7 @@ import mwparserfromhell
 import json
 import argparse
 import sys
+import bz2
 
 def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None):
     def clean_text(text):
@@ -52,36 +53,37 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
     articles = []
     article_count = 0
 
-    context = ET.iterparse(xml_file_path, events=('end',))
-    
-    for event, elem in context:
-        if elem.tag.endswith('page'):
-            try:
-                title_elem = elem.find('{*}title')
-                text_elem = elem.find('.//{*}text')
-                
-                if title_elem is not None and text_elem is not None:
-                    title = title_elem.text
-                    text = text_elem.text
+    with bz2.open(xml_file_path, 'rt', encoding='utf-8') as xml_file:
+        context = ET.iterparse(xml_file, events=('end',))
+        
+        for event, elem in context:
+            if elem.tag.endswith('page'):
+                try:
+                    title_elem = elem.find('{*}title')
+                    text_elem = elem.find('.//{*}text')
                     
-                    if text and title and is_valid_article(title, text, categories):
-                        cleaned_text = clean_text(text)
+                    if title_elem is not None and text_elem is not None:
+                        title = title_elem.text
+                        text = text_elem.text
                         
-                        articles.append({
-                            'title': title,
-                            'text': cleaned_text
-                        })
-                        
-                        article_count += 1
-                        
-                        # Stop if max articles is reached
-                        if max_articles and article_count >= max_articles:
-                            break
-            
-            except Exception as e:
-                print(f"Error processing page: {e}", file=sys.stderr)
-            
-            elem.clear()
+                        if text and title and is_valid_article(title, text, categories):
+                            cleaned_text = clean_text(text)
+                            
+                            articles.append({
+                                'title': title,
+                                'text': cleaned_text
+                            })
+                            
+                            article_count += 1
+                            
+                            # Stop if max articles is reached
+                            if max_articles and article_count >= max_articles:
+                                break
+                
+                except Exception as e:
+                    print(f"Error processing page: {e}", file=sys.stderr)
+                
+                elem.clear()
 
     # Write to JSON file
     with open(output_file_path, 'w', encoding='utf-8') as output_file:
@@ -92,10 +94,10 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
 
 def main():
     # Set up argument parser
-    parser = argparse.ArgumentParser(description='Extract Wikipedia articles from XML dump')
+    parser = argparse.ArgumentParser(description='Extract Wikipedia articles from compressed XML dump')
     parser.add_argument('-i', '--input', 
-                        default='jawiki-20241120-pages-articles-multistream.xml', 
-                        help='Input XML file path')
+                        default='jawiki-20241120-pages-articles-multistream.xml.bz2', 
+                        help='Input compressed XML file path')
     parser.add_argument('-o', '--output', 
                         default='wikipedia_ja_extracted.json', 
                         help='Output JSON file path')

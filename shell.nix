@@ -4,6 +4,7 @@ in pkgs.mkShell rec {
   name = "python-dev";
 
   buildInputs = with pkgs; [
+    git
     python312
     python312Packages.requests
     python312Packages.langdetect
