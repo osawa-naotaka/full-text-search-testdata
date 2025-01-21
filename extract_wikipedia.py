@@ -5,7 +5,7 @@ import argparse
 import sys
 import bz2
 
-def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None):
+def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None, start_index=0):
     def clean_text(text):
         try:
             wikicode = mwparserfromhell.parse(text)
@@ -23,7 +23,7 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
         
         except Exception as e:
             print(f"Unexpected error in clean_text: {e}")
-            return text
+            return None
     
     def is_valid_article(title, text, categories):
         # Skip articles with ':' (templates, categories, etc.)
@@ -55,7 +55,10 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
 
     with bz2.open(xml_file_path, 'rt', encoding='utf-8') as xml_file:
         context = ET.iterparse(xml_file, events=('end',))
-        
+
+        for _ in range(start_index):
+            next(context)
+
         for event, elem in context:
             if elem.tag.endswith('page'):
                 try:
@@ -68,6 +71,10 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
                         
                         if text and title and is_valid_article(title, text, categories):
                             cleaned_text = clean_text(text)
+
+                            if cleaned_text is None or cleaned_text.startswith("REDIRECT"):
+                                elem.clear()
+                                continue
                             
                             articles.append({
                                 'title': title,
@@ -108,6 +115,10 @@ def main():
     parser.add_argument('-c', '--categories', 
                         nargs='+', 
                         help='Categories to filter articles')
+    parser.add_argument('-s', '--start', 
+                        type=int,
+                        default=0,
+                        help='Start index of articles to extract')
 
     # Parse arguments
     args = parser.parse_args()
@@ -117,7 +128,8 @@ def main():
         args.input, 
         args.output, 
         max_articles=args.number, 
-        categories=args.categories
+        categories=args.categories,
+        start_index=args.start
     )
 
 if __name__ == "__main__":

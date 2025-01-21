@@ -53,7 +53,7 @@ class KeywordExtractor:
         words = re.findall(r'\b[a-zA-Z]+\b', text.lower())
         # ストップワードの除去（必要に応じて拡張）
         stop_words = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by'}
-        words = [w for w in words if len(w) >= self.config["min_length"] and w not in stop_words]
+        words = [w for w in words if len(w) >= min_length and w not in stop_words]
         
         # 頻出度でフィルタリング
         counter = Counter(words)
