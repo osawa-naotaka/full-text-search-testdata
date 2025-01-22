@@ -6,10 +6,11 @@ from pathlib import Path
 def sanitize_filename(title):
     """ファイル名として使用できない文字を置換する"""
     # Windows/Unix両方で使用できない文字を置換
-    invalid_chars = '<>:"/\\|?*'
+    invalid_chars = '<>():"/\\|?*'
     filename = title
     for char in invalid_chars:
         filename = filename.replace(char, '_')
+    filename = filename.replace(' ', '_')
     return filename
 
 def generate_markdown_files(json_file_path, output_dir):
