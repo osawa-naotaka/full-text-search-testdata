@@ -4,52 +4,90 @@ import json
 import argparse
 import sys
 import bz2
+import subprocess
+from typing import Optional
+
+def clean_text(text):
+    try:
+        wikicode = mwparserfromhell.parse(text)
+        # Remove external links
+        for external_link in wikicode.filter_external_links():
+            # Replace external link with its description or remove
+            if external_link.title:
+                wikicode.replace(external_link, str(external_link.title))
+            else:
+                wikicode.replace(external_link, '')
+                    
+        cleaned_text = wikicode.strip_code()
+                    
+        return cleaned_text
+    
+    except Exception as e:
+        print(f"Unexpected error in clean_text: {e}")
+        return None
+
+def clean_html(text: str) -> Optional[str]:
+    """
+    WikitextをHTMLに変換します。
+    ../mediawiki-services-parsoid/bin/parse.phpを使用して変換を行います。
+    
+    Args:
+        text: 変換するWikitext
+    Returns:
+        変換されたHTML。エラーの場合はNone
+    """
+    try:
+        # PHPスクリプトのパス
+        php_script = "../mediawiki-services-parsoid/bin/parse.php"
+        
+        # サブプロセスを作成し、標準入力/出力をパイプで接続
+        process = subprocess.Popen(
+            ["php", php_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # 入力テキストを送信し、結果を受け取る
+        stdout, stderr = process.communicate(input=text)
+        
+        if process.returncode != 0:
+            print(f"HTML変換エラー: {stderr}", file=sys.stderr)
+            return None
+            
+        return stdout.strip()
+        
+    except Exception as e:
+        print(f"HTML変換中に予期せぬエラーが発生: {e}", file=sys.stderr)
+        return None
+
+def is_valid_article(title, text, categories):
+    # Skip articles with ':' (templates, categories, etc.)
+    if ':' in title:
+        return False
+    
+    # Skip list and disambiguation pages
+    if "一覧" in title or "曖昧さ回避" in title:
+        return False
+    
+    # If categories are specified, check if any match
+    if categories:
+        # Extract categories from the text
+        wikicode = mwparserfromhell.parse(text)
+        article_categories = [
+            str(template).replace('[[Category:', '').replace(']]', '').strip()
+            for template in wikicode.filter_templates()
+            if str(template).startswith('[[Category:')
+        ]
+        
+        # Check if any of the specified categories match
+        if not any(cat in article_categories for cat in categories):
+            return False
+    
+    return True
 
 def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None, start_index=0):
-    def clean_text(text):
-        try:
-            wikicode = mwparserfromhell.parse(text)
-            # Remove external links
-            for external_link in wikicode.filter_external_links():
-                # Replace external link with its description or remove
-                if external_link.title:
-                    wikicode.replace(external_link, str(external_link.title))
-                else:
-                    wikicode.replace(external_link, '')
-                        
-            cleaned_text = wikicode.strip_code()
-                    
-            return cleaned_text
-        
-        except Exception as e:
-            print(f"Unexpected error in clean_text: {e}")
-            return None
-    
-    def is_valid_article(title, text, categories):
-        # Skip articles with ':' (templates, categories, etc.)
-        if ':' in title:
-            return False
-        
-        # Skip list and disambiguation pages
-        if "一覧" in title or "曖昧さ回避" in title:
-            return False
-        
-        # If categories are specified, check if any match
-        if categories:
-            # Extract categories from the text
-            wikicode = mwparserfromhell.parse(text)
-            article_categories = [
-                str(template).replace('[[Category:', '').replace(']]', '').strip()
-                for template in wikicode.filter_templates()
-                if str(template).startswith('[[Category:')
-            ]
-            
-            # Check if any of the specified categories match
-            if not any(cat in article_categories for cat in categories):
-                return False
-        
-        return True
-
     articles = []
     article_count = 0
 
@@ -71,6 +109,7 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
                         
                         if text and title and is_valid_article(title, text, categories):
                             cleaned_text = clean_text(text)
+                            html_text = clean_html(text)
 
                             if cleaned_text is None or cleaned_text.startswith("REDIRECT"):
                                 elem.clear()
@@ -78,7 +117,8 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
                             
                             articles.append({
                                 'title': title,
-                                'text': cleaned_text
+                                'text': cleaned_text,
+                                'html': html_text
                             })
                             
                             article_count += 1
