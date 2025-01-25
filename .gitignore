@@ -1,7 +1,5 @@
 jawiki-*
-wikidatawiki-*
-*_embeddings.json
-
+enwiki-*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

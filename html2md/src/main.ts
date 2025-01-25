@@ -6,6 +6,8 @@ import remarkParse from 'remark-parse'
 import stripMarkdown from 'strip-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Options } from 'remark-stringify'
+import { promises as fs } from 'fs'
+import path from 'path'
 
 /**
  * HTMLをGitHub Flavored Markdownに変換します
@@ -53,19 +55,87 @@ export async function md2plain(markdown: string): Promise<string> {
   return String(file).trim()
 }
 
-const html = `
-<h1>タイトル</h1>
-<p>これは<strong>太字</strong>のテキストです。</p>
-<ul>
-  <li>リスト1</li>
-  <li>リスト2</li>
-</ul>
-`
+/**
+ * JSONファイルを読み込みます
+ * 
+ * @param filePath - 読み込むJSONファイルのパス
+ * @returns パースされたJSONオブジェクト
+ * @throws JSONファイルの読み込みに失敗した場合
+ */
+export async function readJsonFile<T>(filePath: string): Promise<T> {
+  try {
+    const jsonString = await fs.readFile(filePath, 'utf-8')
+    return JSON.parse(jsonString) as T
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`JSONファイルの読み込みに失敗しました: ${error.message}`)
+    } else {
+      throw new Error(`JSONファイルの読み込みに失敗しました: 不明なエラー`)
+    }
+  }
+}
 
-const markdown = await html2md(html)
-console.log(markdown)
+/**
+ * ファイルを書き込みます
+ * 
+ * @param filePath - 書き込み先のファイルパス
+ * @param htmlContent - 書き込む文字列
+ * @throws ファイルの書き込みに失敗した場合
+ */
+export async function writeFile(filePath: string, htmlContent: string): Promise<void> {
+  try {
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    await fs.writeFile(filePath, htmlContent, 'utf-8')
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`ファイルの書き込みに失敗しました: ${error.message}`)
+    } else {
+      throw new Error(`ファイルの書き込みに失敗しました: 不明なエラー`)
+    }
+  }
+}
 
-// Markdownをプレーンテキストに変換するテスト
-const plainText = await md2plain(markdown)
-console.log('Plain text:')
-console.log(plainText)
+/**
+ * 文字列をファイル名として安全な形式に変換します
+ * 
+ * @param title - 変換する文字列
+ * @returns ファイル名として安全な文字列
+ */
+function sanitizeFileName(title: string): string {
+  return encodeURIComponent(
+    title
+      .replace(/\s+/g, '-') // スペースをハイフンに変換
+      .replace(/[\/\\:*?"<>|]/g, '_') // Windowsで使用できない文字を削除
+  )
+}
+
+async function main() {
+  if (process.argv.length < 4) {
+    console.error('使用方法: node script.js <入力JSONファイル> <出力ディレクトリ>');
+    process.exit(1);
+  }
+
+  const inputFile = process.argv[2];
+  const outputDir = process.argv[3];
+
+  try {
+    const json = await readJsonFile<{title: string, html: string}[]>(inputFile);
+
+    for (const item of json) {
+      const markdown = await html2md(item.html);
+      const safeFileName = sanitizeFileName(item.title);
+      await writeFile(path.join(outputDir, safeFileName + '.md'), markdown);
+    }
+    console.log('変換が完了しました');
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error('エラーが発生しました:', error.message);
+    } else {
+      console.error('不明なエラーが発生しました');
+    }
+    process.exit(1);
+  }
+}
+
+main();
+

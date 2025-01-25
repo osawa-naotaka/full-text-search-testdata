@@ -38,7 +38,7 @@ def clean_html(text: str) -> Optional[str]:
     """
     try:
         # PHPスクリプトのパス
-        php_script = "../mediawiki-services-parsoid/bin/parse.php"
+        php_script = "mediawiki-services-parsoid/bin/parse.php"
         
         # サブプロセスを作成し、標準入力/出力をパイプで接続
         process = subprocess.Popen(
@@ -87,7 +87,7 @@ def is_valid_article(title, text, categories):
     
     return True
 
-def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None, start_index=0):
+def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, categories=None, start_index=0, language='ja'):
     articles = []
     article_count = 0
 
@@ -117,8 +117,7 @@ def extract_wikipedia_text(xml_file_path, output_file_path, max_articles=None, c
                             
                             articles.append({
                                 'title': title,
-                                'text': cleaned_text,
-                                'html': html_text
+                                'html': "<html><head><base href='https://" + language + ".wikipedia.org/wiki/'><title>" + title + "</title></head><body><h1>" + title + "</h1>" + html_text + "</body></html>"
                             })
                             
                             article_count += 1
@@ -159,6 +158,9 @@ def main():
                         type=int,
                         default=0,
                         help='Start index of articles to extract')
+    parser.add_argument('-l', '--language', 
+                        default='ja',
+                        help='Language of Wikipedia')
 
     # Parse arguments
     args = parser.parse_args()
@@ -169,7 +171,8 @@ def main():
         args.output, 
         max_articles=args.number, 
         categories=args.categories,
-        start_index=args.start
+        start_index=args.start,
+        language=args.language
     )
 
 if __name__ == "__main__":

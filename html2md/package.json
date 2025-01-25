@@ -1,24 +1,23 @@
 {
   "name": "html2md",
-  "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
+  "description": "translate json-html to markdown",
+  "main": "index.js",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
-    "preview": "vite preview"
+    "build": "tsc"
   },
-  "devDependencies": {
-    "typescript": "~5.6.2",
-    "vite": "^6.0.5"
-  },
+  "author": "osawa naotaka",
+  "license": "MIT",
   "dependencies": {
+    "@types/node": "^22.10.10",
     "rehype-parse": "^9.0.1",
     "rehype-remark": "^10.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
     "strip-markdown": "^6.0.0",
+    "typescript": "^5.7.3",
     "unified": "^11.0.5"
   }
 }
