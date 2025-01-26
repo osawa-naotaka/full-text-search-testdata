@@ -17,5 +17,6 @@ in pkgs.mkShell rec {
     nodejs_23
     php84
     php84Packages.composer
+    pandoc
   ];
 }

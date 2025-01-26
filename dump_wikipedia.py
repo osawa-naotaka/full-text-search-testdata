@@ -1,11 +1,12 @@
 import requests
-import json
 import sys
 import time
 import re
 from typing import Dict, List
-import unicodedata
-import langdetect  # 追加のライブラリが必要
+import subprocess
+from typing import Optional
+import urllib.parse
+
 
 if(len(sys.argv) != 2):
     exit(-1)
@@ -89,34 +90,10 @@ def get_page(title):
     if not revisions:
         return None
         
-    content = revisions[0]['slots']['main']['*']
+    content = wiki_to_markdown(revisions[0]['slots']['main']['*'])
     categories = page_data.get('categories', [])
     return {'content': content, 'categories': categories}
 
-def check_language_content(content: str, config: Dict) -> bool:
-    """言語固有の文字や表現の含有率をチェック"""
-    if config["script_pattern"]:
-        # 言語固有の文字パターンが定義されている場合
-        script_matches = re.findall(config["script_pattern"], content)
-        script_char_count = sum(len(text) for text in script_matches)
-        total_content_length = len(content)
-        return script_char_count >= total_content_length * config["target_ratio"]
-    else:
-        # 未定義の言語の場合はlangdetectを使用
-        try:
-            detected_lang = langdetect.detect(content)
-            return detected_lang == lang_code
-        except:
-            return False
-
-def clean_content(content: str) -> str:
-    """ウィキテキストから実際のテキスト内容を抽出"""
-    # 基本的なウィキマークアップの除去
-    content = re.sub(r'\{\{[^\}]*\}\}', '', content)  # テンプレートの除去
-    content = re.sub(r'\[\[(?:[^|\]]*\|)?([^\]]+)\]\]', r'\1', content)  # リンクの除去
-    content = re.sub(r'==.*?==', '', content)  # 見出しの除去
-    content = re.sub(r'<ref>.*?</ref>', '', content)  # 参照の除去
-    return content
 
 def is_quality_article(page_data: Dict) -> bool:
     if not page_data:
@@ -125,6 +102,9 @@ def is_quality_article(page_data: Dict) -> bool:
     config = get_language_config()
     content = page_data['content']
     categories = page_data['categories']
+
+    if not content or not categories:
+        return False
     
     # 記事の長さチェック
     if len(content) < config["min_length"]:
@@ -136,55 +116,63 @@ def is_quality_article(page_data: Dict) -> bool:
         if any(ex_cat in cat_title for ex_cat in config["exclude_categories"]):
             return False
     
-    # クリーンなテキストを取得
-    clean_text = clean_content(content)
-    
-    # 言語チェック
-    if not check_language_content(clean_text, config):
-        return False
-    
-    # テンプレートや整形式の多用をチェック
-    template_count = content.count('{{')
-    text_length = len(content)
-    if template_count > text_length / 200:
-        return False
-    
-    # 箇条書きの割合をチェック
-    bullet_points = content.count('*') + content.count('#')
-    if bullet_points > text_length / 50:
-        return False
-    
-    return True
+
+def wiki_to_markdown(text: str) -> Optional[str]:
+    try:
+        process = subprocess.Popen(
+            ["pandoc", "-f", "mediawiki", "-t", "markdown"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        
+        # 入力テキストを送信し、結果を受け取る
+        stdout, stderr = process.communicate(input=text)
+        
+        if process.returncode != 0:
+            print(f"markdown変換エラー: {stderr}", file=sys.stderr)
+            return None
+            
+        return stdout.strip()
+        
+    except Exception as e:
+        print(f"markdown変換中に予期せぬエラーが発生: {e}", file=sys.stderr)
+        return None
 
 def main():
     articles = []
     processed_count = 0
-    target_count = 100
+    target_count = 10
     
     while len(articles) < target_count and processed_count < 1000:
         titles = get_list()
         for title in titles:
             page_data = get_page(title)
-            if is_quality_article(page_data):
-                articles.append({
-                    "title": title,
-                    "content": page_data['content']
-                })
-                print(f"Found quality article: {title}")
-                if len(articles) >= target_count:
-                    break
+            # if is_quality_article(page_data):
+            # フロントマターを追加
+            content_with_front_matter = f"---\ntitle: {title}\n---\n{page_data['content']}"
+            
+            # URLエンコードされたファイル名を生成
+            encoded_title = urllib.parse.quote(title)
+            file_path = f"md/{encoded_title}.md"
+            
+            # ファイルに保存
+            with open(file_path, "w", encoding="utf-8") as f:
+                f.write(content_with_front_matter)
+            
+            print(f"Saved quality article: {title} to {file_path}")
             
             processed_count += 1
+            if processed_count >= target_count:
+                break
+            
             time.sleep(1)
         
-        if len(articles) < target_count:
-            print(f"Found {len(articles)} quality articles so far, continuing search...")
+        if processed_count < target_count:
+            print(f"Processed {processed_count} articles so far, continuing search...")
     
-    # JSON形式でファイルに保存
-    with open("wikipedia_articles.{}.json".format(lang_code), "w", encoding="utf-8") as f:
-        json.dump(articles, f, ensure_ascii=False, indent=4)
-    
-    print(f"Processed {processed_count} articles to find {len(articles)} quality articles")
+    print(f"Processed {processed_count} articles to find {target_count} quality articles")
 
 if __name__ == "__main__":
     main()
