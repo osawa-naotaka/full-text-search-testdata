@@ -1,178 +1,179 @@
-import requests
+import xml.etree.ElementTree as ET
+import mwparserfromhell
+import json
+import argparse
 import sys
-import time
-import re
-from typing import Dict, List
+import bz2
 import subprocess
-from typing import Optional
+import requests
+from bs4 import BeautifulSoup
 import urllib.parse
+from typing import Optional
 
 
-if(len(sys.argv) != 2):
-    exit(-1)
-
-lang_code = sys.argv[1]
-url = "https://{}.wikipedia.org/w/api.php".format(lang_code)
-print(url)
-
-headers = {'User-Agent': 'FTSTBot/1.0 (https://github.com/osawa-naotaka/full-text-search-testdata; ohsawa.naotaka@gmail.com)'}
-
-# 言語ごとの設定
-LANGUAGE_CONFIGS = {
-    "ja": {
-        "min_length": 2000,
-        "target_ratio": 0.3,
-        "exclude_categories": ["一覧", "スタブ", "曖昧さ回避"],
-        "script_pattern": r'[ぁ-んァ-ン一-龥]+',
-    },
-    "en": {
-        "min_length": 2000,
-        "target_ratio": 0.5,
-        "exclude_categories": ["Lists", "Stub", "Disambiguation"],
-        "script_pattern": r'[a-zA-Z]+',
-    },
-    "zh": {
-        "min_length": 1500,
-        "target_ratio": 0.3,
-        "exclude_categories": ["列表", "小作品", "消歧义"],
-        "script_pattern": r'[\u4e00-\u9fff]+',
-    },
-    "ko": {
-        "min_length": 1500,
-        "target_ratio": 0.3,
-        "exclude_categories": ["목록", "토막글", "동음이의"],
-        "script_pattern": r'[\uac00-\ud7af\u1100-\u11ff]+',
-    },
-    # 他の言語も同様に追加可能
-}
-
-def get_language_config():
-    """言語設定を取得。未定義の言語の場合はデフォルト設定を返す"""
-    default_config = {
-        "min_length": 2000,
-        "target_ratio": 0.4,
-        "exclude_categories": ["Stub", "List", "Disambiguation"],
-        "script_pattern": None,  # 未定義の言語はlangdetectに依存
-    }
-    return LANGUAGE_CONFIGS.get(lang_code, default_config)
-
-def get_list():
-    payload = {"format": "json", "action": "query", "list": "random", "rnnamespace": "0", "rnlimit": "100"}
-    response = requests.get(url, headers=headers, params=payload)
-    if(response.status_code != 200):
-        print("error response {} at get_page".format(response.status_code))
-        exit(-1)
-    data = response.json()
-    titles = map(lambda t: t['title'], data['query']['random'])
-    return list(titles)
-
-def get_page(title):
-    payload = {
-        "format": "json",
-        "action": "query",
-        "prop": "revisions|categories",
-        "rvprop": "content",
-        "rvslots": "main",
-        "titles": title,
-        "cllimit": "50"
-    }
-    response = requests.get(url, headers=headers, params=payload)
-    if(response.status_code != 200):
-        print("error response {} at get_page".format(response.status_code))
-        exit(-1)
-    data = response.json()
+def clean_text(text):
+    try:
+        wikicode = mwparserfromhell.parse(text)
+        # Remove external links
+        for external_link in wikicode.filter_external_links():
+            # Replace external link with its description or remove
+            if external_link.title:
+                wikicode.replace(external_link, str(external_link.title))
+            else:
+                wikicode.replace(external_link, '')
+                    
+        cleaned_text = wikicode.strip_code()
+                    
+        return cleaned_text
     
-    pages = data['query']['pages']
-    page_id = next(iter(pages))
-    page_data = pages[page_id]
-    
-    revisions = page_data.get('revisions')
-    if not revisions:
+    except Exception as e:
+        print(f"Unexpected error in clean_text: {e}")
         return None
+
+def fetch_html_from_api(title, language='ja'):
+    url = f"https://{language}.wikipedia.org/w/api.php"
+    headers = {'User-Agent': 'FTSTBot/1.0 (https://github.com/osawa-naotaka/full-text-search-testdata; ohsawa.naotaka@gmail.com)'}
+    params = {
+        'action': 'parse',
+        'format': 'json',
+        'page': title,
+        'redirects': 1
+    }
+    
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            data = response.json()
+            return data['parse']['text']['*']
+        else:
+            print(f"API request failed: {response.status_code}")
+            return None
+    except Exception as e:
+        print(f"Error fetching HTML for {title}: {e}")
+        return None
+
+
+def clean_scraped_html(html):
+    soup = BeautifulSoup(html, 'html.parser')
+    main_content = soup.find('div', {'id': 'bodyContent'})
+    if main_content:
+        return str(main_content)
+    return html
+
+def is_valid_article(title, text, categories):
+    # Skip articles with ':' (templates, categories, etc.)
+    if ':' in title:
+        return False
+    
+    # Skip list and disambiguation pages
+    if "一覧" in title or "曖昧さ回避" in title:
+        return False
+    
+    # If categories are specified, check if any match
+    if categories:
+        # Extract categories from the text
+        wikicode = mwparserfromhell.parse(text)
+        article_categories = [
+            str(template).replace('[[Category:', '').replace(']]', '').strip()
+            for template in wikicode.filter_templates()
+            if str(template).startswith('[[Category:')
+        ]
         
-    content = wiki_to_markdown(revisions[0]['slots']['main']['*'])
-    categories = page_data.get('categories', [])
-    return {'content': content, 'categories': categories}
-
-
-def is_quality_article(page_data: Dict) -> bool:
-    if not page_data:
-        return False
-    
-    config = get_language_config()
-    content = page_data['content']
-    categories = page_data['categories']
-
-    if not content or not categories:
-        return False
-    
-    # 記事の長さチェック
-    if len(content) < config["min_length"]:
-        return False
-    
-    # カテゴリーチェック
-    for category in categories:
-        cat_title = category.get('title', '')
-        if any(ex_cat in cat_title for ex_cat in config["exclude_categories"]):
+        # Check if any of the specified categories match
+        if not any(cat in article_categories for cat in categories):
             return False
     
+    return True
 
-def wiki_to_markdown(text: str) -> Optional[str]:
-    try:
-        process = subprocess.Popen(
-            ["pandoc", "-f", "mediawiki", "-t", "markdown"],
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True
-        )
-        
-        # 入力テキストを送信し、結果を受け取る
-        stdout, stderr = process.communicate(input=text)
-        
-        if process.returncode != 0:
-            print(f"markdown変換エラー: {stderr}", file=sys.stderr)
-            return None
-            
-        return stdout.strip()
-        
-    except Exception as e:
-        print(f"markdown変換中に予期せぬエラーが発生: {e}", file=sys.stderr)
-        return None
+def dump_wikipedia_html(xml_file_path, output_file_path, max_articles=None, categories=None, start_index=0, language='ja'):
+    articles = []
+    article_count = 0
+
+    with bz2.open(xml_file_path, 'rt', encoding='utf-8') as xml_file:
+        context = ET.iterparse(xml_file, events=('end',))
+
+        for _ in range(start_index):
+            next(context)
+
+        for event, elem in context:
+            if elem.tag.endswith('page'):
+                try:
+                    title_elem = elem.find('{*}title')
+                    text_elem = elem.find('.//{*}text')
+                    
+                    if title_elem is not None and text_elem is not None:
+                        title = title_elem.text
+                        text = text_elem.text
+                        
+                        if text and title and is_valid_article(title, text, categories):
+                            cleaned_text = clean_text(text)
+
+                            if cleaned_text is None or cleaned_text.startswith("REDIRECT"):
+                                elem.clear()
+                                continue
+
+                            html_text = clean_scraped_html(fetch_html_from_api(title, language))
+
+                            articles.append({
+                                'title': title,
+                                'html': "<html><head><base href='https://" + language + ".wikipedia.org/wiki/'><title>" + title + "</title></head><body><h1>" + title + "</h1>" + html_text + "</body></html>"
+                            })
+
+                            print(f"Processed quality article: {title}")
+                            article_count += 1
+
+                            # Stop if max articles is reached
+                            if max_articles and article_count >= max_articles:
+                                break
+                
+                except Exception as e:
+                    print(f"Error processing page: {e}", file=sys.stderr)
+                
+                elem.clear()
+
+    # Write to JSON file
+    with open(output_file_path, 'w', encoding='utf-8') as output_file:
+        json.dump(articles, output_file, ensure_ascii=False, indent=2)
+    
+    print(f"Extracted {article_count} articles. Output saved to {output_file_path}")
+    return article_count
 
 def main():
-    articles = []
-    processed_count = 0
-    target_count = 10
-    
-    while len(articles) < target_count and processed_count < 1000:
-        titles = get_list()
-        for title in titles:
-            page_data = get_page(title)
-            # if is_quality_article(page_data):
-            # フロントマターを追加
-            content_with_front_matter = f"---\ntitle: {title}\n---\n{page_data['content']}"
-            
-            # URLエンコードされたファイル名を生成
-            encoded_title = urllib.parse.quote(title)
-            file_path = f"md/{encoded_title}.md"
-            
-            # ファイルに保存
-            with open(file_path, "w", encoding="utf-8") as f:
-                f.write(content_with_front_matter)
-            
-            print(f"Saved quality article: {title} to {file_path}")
-            
-            processed_count += 1
-            if processed_count >= target_count:
-                break
-            
-            time.sleep(1)
-        
-        if processed_count < target_count:
-            print(f"Processed {processed_count} articles so far, continuing search...")
-    
-    print(f"Processed {processed_count} articles to find {target_count} quality articles")
+    # Set up argument parser
+    parser = argparse.ArgumentParser(description='Dump Wikipedia articles from web, the article title is fetched from compressed XML dump')
+    parser.add_argument('-i', '--input', 
+                        default='jawiki-20241120-pages-articles-multistream.xml.bz2', 
+                        help='Input compressed XML file path')
+    parser.add_argument('-o', '--output', 
+                        default='wikipedia_ja_extracted.json', 
+                        help='Output JSON file path')
+    parser.add_argument('-n', '--number', 
+                        type=int,
+                        default=100,
+                        help='Maximum number of articles to extract')
+    parser.add_argument('-c', '--categories', 
+                        nargs='+', 
+                        help='Categories to filter articles')
+    parser.add_argument('-s', '--start', 
+                        type=int,
+                        default=0,
+                        help='Start index of articles to extract')
+    parser.add_argument('-l', '--language', 
+                        default='ja',
+                        help='Language of Wikipedia')
+
+    # Parse arguments
+    args = parser.parse_args()
+
+    # Extract articles
+    dump_wikipedia_html(
+        args.input, 
+        args.output,
+        max_articles=args.number, 
+        categories=args.categories,
+        start_index=args.start,
+        language=args.language
+    )
 
 if __name__ == "__main__":
     main()

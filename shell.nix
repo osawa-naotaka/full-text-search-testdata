@@ -14,6 +14,7 @@ in pkgs.mkShell rec {
     python312Packages.tqdm
     python312Packages.fugashi
     python312Packages.unidic-lite
+    python312Packages.beautifulsoup4
     nodejs_23
     php84
     php84Packages.composer
