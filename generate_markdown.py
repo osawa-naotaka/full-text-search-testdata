@@ -2,6 +2,7 @@ import json
 import os
 import argparse
 from pathlib import Path
+import urllib.parse
 
 def sanitize_filename(title):
     """ファイル名として使用できない文字を置換する"""
@@ -28,9 +29,10 @@ def generate_markdown_files(json_file_path, output_dir):
         text = article['text']
         
         # ファイル名を生成（タイトルから不正な文字を除去）
-        filename = sanitize_filename(title) + '.md'
+        filename = urllib.parse.quote(sanitize_filename(title)) + '.md'
         filepath = os.path.join(output_dir, filename)
-        
+
+
         # markdownファイルを作成
         with open(filepath, 'w', encoding='utf-8') as f:
             # ヘッダー情報を追加

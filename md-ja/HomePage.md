@@ -1,0 +1,4 @@
+---
+title: HomePage
+---
+REDIRECT ホームページ
