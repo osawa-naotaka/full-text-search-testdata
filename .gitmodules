@@ -1,3 +1,0 @@
-[submodule "mediawiki-services-parsoid"]
-	path = mediawiki-services-parsoid
-	url = https://github.com/wikimedia/mediawiki-services-parsoid.git
